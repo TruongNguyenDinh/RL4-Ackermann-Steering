@@ -33,7 +33,7 @@ class Wheel:
         self.steerable = steerable
         self.driven = driven
 
-    def draw(self, screen, car):
+    def draw(self, screen, car, camera): # ✅ THÊM THAM SỐ CAMERA
 
         # ---------------------------------
         # Tâm bánh trong hệ tọa độ thế giới
@@ -84,6 +84,14 @@ class Wheel:
             world_points.append((wx, wy))
 
         # ---------------------------------
+        # ✅ CHUYỂN ĐỔI SANG TỌA ĐỘ MÀN HÌNH (SCREEN COORDINATES)
+        # ---------------------------------
+        screen_points = [
+            camera.world_to_screen(pygame.Vector2(p[0], p[1]))
+            for p in world_points
+        ]
+
+        # ---------------------------------
         # Màu để debug
         # ---------------------------------
         if self.steerable and self.driven:
@@ -95,8 +103,9 @@ class Wheel:
         else:
             color = (40, 40, 40)
 
+        # Vẽ bằng screen_points thay vì world_points
         pygame.draw.polygon(
             screen,
             color,
-            world_points
+            screen_points # ✅ ĐÃ ĐỔI THÀNH SCREEN POINTS
         )

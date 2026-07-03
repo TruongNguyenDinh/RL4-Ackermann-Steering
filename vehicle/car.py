@@ -215,23 +215,32 @@ class Car:
         return world
 
     # ==================================================
-    # Draw
+    # Draw (ĐÃ SỬA)
     # ==================================================
-    def draw(self, screen):
+    def draw(self, screen, camera): # ✅ THÊM THAM SỐ CAMERA
+
+        # 1. Lấy tọa độ thế giới của 4 góc xe
+        world_corners = self.get_corners()
+        
+        # 2. Chuyển đổi sang tọa độ màn hình bằng Camera
+        screen_corners = [
+            camera.world_to_screen(pygame.Vector2(p[0], p[1])) 
+            for p in world_corners
+        ]
 
         # Body
         pygame.draw.polygon(
             screen,
             (60, 120, 255),
-            self.get_corners()
+            screen_corners # ✅ VẼ BẰNG TỌA ĐỘ MÀN HÌNH
         )
 
-        # Wheels
+        # Wheels (✅ TRUYỀN CAMERA XUỐNG DƯỚI)
         for wheel in self.wheels:
-            wheel.draw(screen, self)
+            wheel.draw(screen, self, camera)
 
-        # Lidar
-        self.lidar.draw(screen, self)
+        # Lidar (✅ TRUYỀN CAMERA XUỐNG DƯỚI)
+        self.lidar.draw(screen, self, camera)
 
     # ==================================================
     # Sensor
