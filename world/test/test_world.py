@@ -18,7 +18,7 @@ clock = pygame.time.Clock()
 # INIT COMPONENTS
 # ==========================
 road = Road(
-    width=120,
+    width=220,
     segment_length=180,
     samples_per_segment=20
 )

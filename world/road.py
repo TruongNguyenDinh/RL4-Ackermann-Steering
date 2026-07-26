@@ -6,7 +6,7 @@ import pygame
 class Road:
     def __init__(
         self,
-        width: float = 120,
+        width: float = 200,
         segment_length: float = 180,
         samples_per_segment: int = 20,
     ):
@@ -33,6 +33,7 @@ class Road:
         self.current_heading = 0.0
         self.turn_rate = 0.0
         self._cached_polygon = []
+        print(width)
     def get_start(self):
         return self.control_points[0]
     # ==================================================
