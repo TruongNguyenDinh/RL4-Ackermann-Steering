@@ -1,92 +1,175 @@
 import pygame
 
-from .car import Car
+from world.world import World
+from world.road import Road
+from vehicle.car import Car
+from vehicle.camera import VehicleCamera
 
 
-WIDTH = 1000
-HEIGHT = 700
+WIDTH = 1400
+HEIGHT = 900
 
 pygame.init()
 
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Bicycle Model Test")
+screen = pygame.display.set_mode(
+    (WIDTH, HEIGHT)
+)
+
+pygame.display.set_caption(
+    "Road Generator + Vehicle Camera"
+)
 
 clock = pygame.time.Clock()
 font = pygame.font.SysFont("consolas", 20)
+
+
+# ==================================================
+# INIT COMPONENTS
+# ==================================================
+
+road = Road(
+    width=220,
+    segment_length=180,
+    samples_per_segment=20
+)
 
 car = Car(
     x=WIDTH // 2,
     y=HEIGHT // 2,
 )
 
+world = World(
+    road,
+    car
+)
+
+# ==================================================
+# VEHICLE CAMERA
+# ==================================================
+
+vehicle_camera = VehicleCamera(
+    width=480,
+    height=270,
+    fov=90,
+    view_distance=400,
+)
+
+world.reset()
+
+
+# ==================================================
+# MAIN LOOP
+# ==================================================
+
 running = True
+
+action = (0.0, 0.0)
+
 
 while running:
 
+    # ==================================================
+    # 1. CLOCK & DT (Bắt buộc để game không chạy quá nhanh)
+    # ==================================================
     dt = clock.tick(60) / 1000
 
+    # ==================================================
+    # 2. EVENTS (Bắt buộc để không bị treo cửa sổ)
+    # ==================================================
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                world.reset()
 
-    # ==========================
-    # Steering theo chuột
-    # ==========================
-
-
-    # ==========================
-    # Keyboard
-    # ==========================
+    # ==================================================
+    # 3. INPUT (Điều khiển xe)
+    # ==================================================
+    keys = pygame.key.get_pressed()
+    steering = 0.0
     throttle = 0.0
 
-    keys = pygame.key.get_pressed()
-
+    if keys[pygame.K_LEFT]:
+        steering = -1.0
+    if keys[pygame.K_RIGHT]:
+        steering = 1.0
     if keys[pygame.K_UP]:
-        throttle = 1.0          # tiến
+        throttle = 1.0
+    if keys[pygame.K_DOWN]:
+        throttle = -1.0
 
-    elif keys[pygame.K_DOWN]:
-        throttle = -1.0         # lùi
+    action = (steering, throttle)
 
-    mouse_x, mouse_y = pygame.mouse.get_pos()
+    # ==================================================
+    # 4. UPDATE WORLD (Cập nhật vật lý)
+    # ==================================================
+    world.update(dt, action)
 
-    steering = car.steer_to_point(
-        mouse_x,
-        mouse_y
+    # ==================================================
+    # 5. DRAW WORLD (Chỉ vẽ đường và xe)
+    # ==================================================
+    world.draw(screen)
+
+    # ==================================================
+    # 6. VEHICLE CAMERA IMAGE
+    # Chụp ngay bây giờ! Khi screen HOÀN TOÀN SẠCH, chưa có UI
+    # ==================================================
+    camera_image = vehicle_camera.render(
+        screen,
+        car,
+        world.camera
     )
-    car.update(
-        (steering, throttle),
-        dt
+
+    # ==================================================
+    # 7. DRAW UI & FOV
+    # Bây giờ mới vẽ các thành phần phụ lên trên cùng
+    # ==================================================
+    world.draw_ui(screen) # Gọi hàm bạn đã tách trong world.py
+
+    vehicle_camera.draw_fov(
+        screen,
+        car,
+        world.camera.world_to_screen
     )
 
-    # ==========================
-    # Draw
-    # ==========================
-    screen.fill((240, 240, 240))
+    # ==================================================
+    # 8. CAMERA PREVIEW (Khung PIP)
+    # ==================================================
+    preview_x = WIDTH - 500
+    preview_y = 20
+    preview_width = 480
+    preview_height = 270
 
-    car.draw(screen)
-    # ==========================
-    # Debug Info
-    # ==========================
+    # Border
+    pygame.draw.rect(
+        screen,
+        (20, 20, 20),
+        (
+            preview_x - 5,
+            preview_y - 5,
+            preview_width + 10,
+            preview_height + 10,
+        ),
+    )
 
-    info = [
-        f"Vehicle Speed : {car.velocity:7.2f}",
-        f"Steering      : {car.steering:7.2f} rad ({car.steering * 180 / 3.14159:6.2f} deg)",
-        "",
-        f"Front Left Angle : {car.front_left.steer_angle * 180 / 3.14159:6.2f}",
-        f"Front Right Angle: {car.front_right.steer_angle * 180 / 3.14159:6.2f}",
-        "",
-        f"Front Left Speed : {car.front_left.speed:7.2f}",
-        f"Front Right Speed: {car.front_right.speed:7.2f}",
-        f"Rear Left Speed  : {car.rear_left.speed:7.2f}",
-        f"Rear Right Speed : {car.rear_right.speed:7.2f}",
-    ]
+    # Camera image
+    screen.blit(
+        camera_image,
+        (preview_x, preview_y)
+    )
 
-    y = 10
+    # Label
+    label = font.render("VEHICLE CAMERA", True, (255, 255, 255))
+    screen.blit(
+        label,
+        (preview_x + 10, preview_y + 10)
+    )
 
-    for line in info:
-        surface = font.render(line, True, (20, 20, 20))
-        screen.blit(surface, (10, y))
-        y += 24
+    # ==================================================
+    # 9. DISPLAY
+    # ==================================================
     pygame.display.flip()
+
 
 pygame.quit()

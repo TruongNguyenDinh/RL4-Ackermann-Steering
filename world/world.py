@@ -61,37 +61,26 @@ class World:
     def draw(self, screen):
         screen.fill((35, 120, 35))
 
-        # ----------------------------
-        # ROAD
-        # ----------------------------
         self.road.draw(
-            screen,
-            self.camera,
+            screen, self.camera,
             show_control_points=False,
             show_centerline=True
         )
 
-        # ----------------------------
-        # CAR
-        # ----------------------------
-        self.car.draw(screen, self.camera)  # ✅ TRUYỀN CAMERA XUỐNG DƯỚI
-
-        # ----------------------------
-        # DEBUG INFO
-        # ----------------------------
+        self.car.draw(screen, self.camera)
+        
+        # ĐÃ XÓA: Phần code self.car.camera.render(...) và draw_fov(...) ở đây
+    # ==================================================
+    # RENDER UI (Vẽ text sau khi đã chụp camera)
+    # ==================================================
+    def draw_ui(self, screen):
         if self.show_debug:
             self._draw_debug(screen)
+
         if self.done:
             font = pygame.font.SysFont("consolas", 30)
-
-            text = font.render(
-                "OUT OF ROAD",
-                True,
-                (255, 0, 0)
-            )
-
+            text = font.render("OUT OF ROAD", True, (255, 0, 0))
             screen.blit(text, (500, 50))
-
     # ==================================================
     # DEBUG HUD
     # ==================================================

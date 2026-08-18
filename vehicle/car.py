@@ -4,7 +4,7 @@ from .wheel import Wheel
 from physics.bicycle_model import BicycleModel
 from physics.ackermann import AckermannSteering
 from physics.differential import Differential
-
+from vehicle.camera import VehicleCamera
 class Car:
     def __init__(
         self,
@@ -99,6 +99,15 @@ class Car:
         self.max_steering = math.radians(30)
         self.steering_rate = math.radians(60)
         self.steering_return_rate = math.radians(30)
+        # ==========================
+        # Init Camera
+        # ==========================
+        self.camera = VehicleCamera(
+            width=640,
+            height=360,
+            fov=90,
+            view_distance=800,
+        )
 
     # ==================================================
     # Physics
@@ -302,7 +311,7 @@ class Car:
     # ==================================================
     # Draw
     # ==================================================
-    def draw(self, screen, camera):
+    def draw(self, screen, render_camera):
 
         # --------------------------
         # Car body
@@ -311,7 +320,7 @@ class Car:
         world_corners = self.get_corners()
 
         screen_corners = [
-            camera.world_to_screen(
+            render_camera.world_to_screen(
                 pygame.Vector2(
                     p[0],
                     p[1]
@@ -334,7 +343,7 @@ class Car:
             wheel.draw(
                 screen,
                 self,
-                camera
+                render_camera
             )
 
     # ==================================================
