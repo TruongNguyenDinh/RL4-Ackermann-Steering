@@ -311,7 +311,6 @@ class Road:
     # ==================================================
     # Render
     # ==================================================
-
     def draw(
         self,
         screen,
@@ -320,59 +319,45 @@ class Road:
         show_centerline=True,
         show_lane_markings=True,
     ):
-
         n = len(self.left_boundary)
-
         if n < 2:
             return
-
         # --------------------------------------------------
         # Road surface
         # --------------------------------------------------
-
         for i in range(n - 1):
-
             p1 = camera.world_to_screen(
                 self.left_boundary[i]
             )
-
             p2 = camera.world_to_screen(
                 self.right_boundary[i]
             )
-
             p3 = camera.world_to_screen(
                 self.right_boundary[i + 1]
             )
-
             p4 = camera.world_to_screen(
                 self.left_boundary[i + 1]
             )
-
             pygame.draw.polygon(
                 screen,
                 (70, 70, 70),
                 [p1, p2, p3, p4]
             )
-
         # --------------------------------------------------
         # Lane markings
         # --------------------------------------------------
-
         if (
             show_lane_markings
             and len(self.left_lane_marking) > 1
         ):
-
             left_marking = [
                 camera.world_to_screen(p)
                 for p in self.left_lane_marking
             ]
-
             right_marking = [
                 camera.world_to_screen(p)
                 for p in self.right_lane_marking
             ]
-
             pygame.draw.lines(
                 screen,
                 (255, 255, 255),
@@ -380,7 +365,6 @@ class Road:
                 left_marking,
                 4
             )
-
             pygame.draw.lines(
                 screen,
                 (255, 255, 255),
@@ -388,11 +372,9 @@ class Road:
                 right_marking,
                 4
             )
-
         # --------------------------------------------------
         # Centerline
-        # --------------------------------------------------
-
+        # -------------------------------------------------
         if (
             show_centerline
             and len(self.centerline) > 1
@@ -402,7 +384,6 @@ class Road:
                 camera.world_to_screen(p)
                 for p in self.centerline
             ]
-
             pygame.draw.lines(
                 screen,
                 (255, 220, 0),
@@ -410,11 +391,9 @@ class Road:
                 screen_center,
                 2
             )
-
         # --------------------------------------------------
         # Control points
-        # --------------------------------------------------
-
+        # -------------------------------------------------- 
         if show_control_points:
 
             for point in self.active_control_points:
@@ -425,11 +404,9 @@ class Road:
                     camera.world_to_screen(point),
                     5
                 )
-
     # ==================================================
-    # LiDAR / Collision
+    # Collision
     # ==================================================
-
     def get_boundary_polygon(self):
         return self._cached_polygon
     def get_centerline(self):

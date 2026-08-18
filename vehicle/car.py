@@ -1,13 +1,9 @@
 import math
 import pygame
-
 from .wheel import Wheel
-from .lidar import Lidar
 from physics.bicycle_model import BicycleModel
 from physics.ackermann import AckermannSteering
 from physics.differential import Differential
-from process.lidar_processor import LidarProcessor
-
 
 class Car:
     def __init__(
@@ -97,47 +93,12 @@ class Car:
             self.rear_left,
             self.rear_right
         ]
-
         # ==========================
-        # Sensor
+        # steering, throttle
         # ==========================
-        self.lidar = Lidar(
-            num_rays=1060,
-            max_distance=550.0,
-        )
-
-        self.lidar_processor = LidarProcessor(
-            num_features=108,
-            front_fov_deg=180.0,
-            max_distance=250.0,
-        )
-
-        # ==================================================
-        # LiDAR scan indices
-        # ==================================================
-        # Tính một lần vì:
-        # - LiDAR luôn có 360 hướng
-        # - FOV luôn 180°
-        # - RL luôn dùng 72 features
-        #
-        # Không cần tính lại mỗi frame.
-        self.scan_indices = (
-            self.lidar_processor.get_scan_indices(
-                self.lidar.relative_angles
-            )
-        )
-
-        # ==========================
-        # LiDAR features
-        # ==========================
-        self.lidar_features = [
-            1.0
-        ] * self.lidar_processor.num_features
-
-        # ==========================
-        # Steering
-        # ==========================
-        self.max_steering_rate = math.radians(120)
+        self.max_steering = math.radians(30)
+        self.steering_rate = math.radians(60)
+        self.steering_return_rate = math.radians(30)
 
     # ==================================================
     # Physics
@@ -149,9 +110,7 @@ class Car:
         steering : [-1, 1]
         throttle : [-1, 1]
         """
-
         steering_cmd, throttle = action
-
         # --------------------------
         # Steering
         # --------------------------
@@ -160,24 +119,56 @@ class Car:
             min(1.0, steering_cmd)
         )
 
-        target = (
-            steering_cmd
-            * self.max_steering
+        if steering_cmd != 0.0:
+
+            # Đánh lái
+            self.steering += (
+                steering_cmd
+                * self.steering_rate
+                * dt
+            )
+
+        else:
+
+            # --------------------------
+            # Tự trả lái
+            # --------------------------
+            if self.steering > 0.0:
+
+                self.steering -= (
+                    self.steering_return_rate
+                    * dt
+                )
+
+                # Không cho vượt qua 0
+                self.steering = max(
+                    0.0,
+                    self.steering
+                )
+
+            elif self.steering < 0.0:
+
+                self.steering += (
+                    self.steering_return_rate
+                    * dt
+                )
+
+                # Không cho vượt qua 0
+                self.steering = min(
+                    0.0,
+                    self.steering
+                )
+
+        # --------------------------
+        # Giới hạn góc lái
+        # --------------------------
+        self.steering = max(
+            -self.max_steering,
+            min(
+                self.steering,
+                self.max_steering
+            )
         )
-
-        delta = target - self.steering
-
-        max_change = (
-            self.max_steering_rate
-            * dt
-        )
-
-        delta = max(
-            -max_change,
-            min(max_change, delta)
-        )
-
-        self.steering += delta
 
         # --------------------------
         # Throttle -> Acceleration
@@ -346,51 +337,6 @@ class Car:
                 camera
             )
 
-        # --------------------------
-        # LiDAR
-        # --------------------------
-
-        self.lidar.draw(
-            screen,
-            self,
-            camera,
-            show_full_scan=True
-        )
-
-    # ==================================================
-    # Sensor
-    # ==================================================
-    def scan(self, world):
-
-        # ==================================================
-        # 1. Chỉ raycast 72 tia phía trước
-        # ==================================================
-
-        self.lidar.scan(
-            self,
-            world,
-            scan_indices=self.scan_indices,
-        )
-
-        # ==================================================
-        # 2. Lấy khoảng cách của 72 tia
-        # ==================================================
-
-        raw_distances = [
-            self.lidar.distances[i]
-            for i in self.scan_indices
-        ]
-
-        # ==================================================
-        # 3. Process → 72 features
-        # ==================================================
-
-        self.lidar_features = (
-            self.lidar_processor.process(
-                raw_distances
-            )
-        )
-
     # ==================================================
     # RL State
     # ==================================================
@@ -407,9 +353,7 @@ class Car:
 
             "steering": self.steering,
 
-            "lidar": self.lidar_features.copy(),
         }
-
     # ==================================================
     # Reset
     # ==================================================
@@ -432,15 +376,6 @@ class Car:
 
             wheel.speed = 0.0
             wheel.steer_angle = 0.0
-
-        # Reset LiDAR
-        self.lidar.reset()
-
-        # Reset processed LiDAR features
-        self.lidar_features = [
-            1.0
-        ] * self.lidar_processor.num_features
-
     # ==================================================
     # For testing
     # ==================================================

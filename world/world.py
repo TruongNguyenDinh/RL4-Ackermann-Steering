@@ -13,12 +13,12 @@ class World:
 
         # debug flags
         self.show_debug = True
-
+        # check if car is out of road (for RL)
+        self.done = False
     # ==================================================
     # RESET WORLD
     # ==================================================
     def reset(self):
-        self.car.scan(self)
         self.road.generate((200, 350), 0)
 
         start = self.road.active_control_points[0]
@@ -27,19 +27,33 @@ class World:
 
         # camera phải set theo car ngay lập tức
         self.camera.update((start.x, start.y))
-
+        # car phải set lại trạng thái done
+        self.done = False
     # ==================================================
     # UPDATE WORLD (RL STEP)
     # ==================================================
     def update(self, dt, action):
 
+        if self.done==True:
+            self.reset()
+            return
+
         self.car.update(action, dt)
 
-        self.road.update(pygame.Vector2(self.car.x, self.car.y))
+        self.road.update(
+            pygame.Vector2(
+                self.car.x,
+                self.car.y
+            )
+        )
 
-        self.car.scan(self)   # ✅ FIX QUAN TRỌNG
+        if self.is_car_out_of_road():
+            self.done = True
+            return
 
-        self.camera.update((self.car.x, self.car.y))
+        self.camera.update(
+            (self.car.x, self.car.y)
+        )
 
     # ==================================================
     # RENDER
@@ -67,6 +81,16 @@ class World:
         # ----------------------------
         if self.show_debug:
             self._draw_debug(screen)
+        if self.done:
+            font = pygame.font.SysFont("consolas", 30)
+
+            text = font.render(
+                "OUT OF ROAD",
+                True,
+                (255, 0, 0)
+            )
+
+            screen.blit(text, (500, 50))
 
     # ==================================================
     # DEBUG HUD
@@ -94,70 +118,66 @@ class World:
         return self.car.get_state()
 
     # ==================================================
-    # OPTIONAL: reward function hook (cho RL sau này)
+    # CHECK IF CAR IS OUT OF ROAD (CHO RL SAU NÀY)
     # ==================================================
-    def compute_reward(self):
-        """
-        Placeholder cho RL
-        """
-        reward = 0.0
+    def is_car_out_of_road(self):
 
-        # đi nhanh
-        reward += self.car.velocity * 0.01
+        corners = self.car.get_corners()
 
-        # sau này thêm:
-        # - distance to centerline
-        # - collision penalty
-        # - heading alignment
+        centerline = self.road.get_centerline()
 
-        return reward
-    def cast_ray(self, origin, angle, max_distance=500, coarse_step=25.0):
-        direction = pygame.Vector2(math.cos(angle), math.sin(angle))
-        origin = pygame.Vector2(origin)
+        if len(centerline) < 2:
+            return False
 
-        # Nếu xuất phát đã ngoài đường -> trả ngay, khỏi march
-        if not self._is_on_road(origin):
-            return 0.0, (origin.x, origin.y)
+        half_width = self.road.width / 2
 
-        # ---- Bước 1: march thô để tìm đoạn chứa điểm va chạm ----
-        prev_dist = 0.0
-        dist = coarse_step
-        hit = False
+        for x, y in corners:
 
-        while dist <= max_distance:
-            point = origin + direction * dist
-            if not self._is_on_road(point):
-                hit = True
-                break
-            prev_dist = dist
-            dist += coarse_step
+            point = pygame.Vector2(x, y)
 
-        if not hit:
-            return max_distance, None
+            min_distance = float("inf")
 
-        # ---- Bước 2: binary search refine trong [prev_dist, dist] ----
-        lo, hi = prev_dist, dist
-        hi_point = origin + direction * hi
+            for center in centerline:
 
-        for _ in range(6):  # 6 vòng ~ độ chính xác dưới 1 đơn vị, đủ mượt
-            mid = (lo + hi) * 0.5
-            mid_point = origin + direction * mid
-            if self._is_on_road(mid_point):
-                lo = mid
-            else:
-                hi, hi_point = mid, mid_point
+                distance = point.distance_to(center)
 
-        return hi, (hi_point.x, hi_point.y)
-    def is_inside_polygon(self, point, poly):
+                if distance < min_distance:
+                    min_distance = distance
+
+            if min_distance > half_width:
+                return True
+
+        return False
+    # ==================================================
+    # HELPER: point in polygon (cho RL SAU NÀY)
+    # ==================================================
+    def _point_in_polygon(self, point, polygon):
+
         inside = False
-        j = len(poly) - 1
 
-        for i in range(len(poly)):
-            xi, yi = poly[i].x, poly[i].y
-            xj, yj = poly[j].x, poly[j].y
+        x = point.x
+        y = point.y
 
-            intersect = ((yi > point.y) != (yj > point.y)) and \
-                        (point.x < (xj - xi) * (point.y - yi) / (yj - yi + 1e-9) + xi)
+        j = len(polygon) - 1
+
+        for i in range(len(polygon)):
+
+            xi = polygon[i].x
+            yi = polygon[i].y
+
+            xj = polygon[j].x
+            yj = polygon[j].y
+
+            intersect = (
+                (yi > y) != (yj > y)
+                and
+                x < (
+                    (xj - xi)
+                    * (y - yi)
+                    / (yj - yi + 1e-12)
+                    + xi
+                )
+            )
 
             if intersect:
                 inside = not inside
@@ -165,5 +185,3 @@ class World:
             j = i
 
         return inside
-    def _is_on_road(self, point):
-        return self.is_inside_polygon(point, self.road.get_boundary_polygon())
