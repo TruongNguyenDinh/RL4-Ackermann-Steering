@@ -3,6 +3,7 @@ import random
 from collections import deque
 import pygame
 
+
 class Road:
     def __init__(
         self,
@@ -14,28 +15,37 @@ class Road:
         self.segment_length = segment_length
         self.samples_per_segment = samples_per_segment
 
-        # [YÊU CẦU 2] Lưu giữ lịch sử toàn bộ các điểm điều khiển (không bao giờ xóa)
+        # Lưu giữ lịch sử toàn bộ các điểm điều khiển
         self.history_control_points: list[pygame.Vector2] = []
 
-        # [YÊU CẦU 1] Chuyển đổi list sang deque để popleft() đạt độ phức tạp O(1)
-        # Giới hạn số lượng điểm đang hoạt động (sliding window) để tính toán luôn là O(1)
-        self.max_active_segments = 10 
+        # Sliding window
+        self.max_active_segments = 10
         max_points = self.max_active_segments * self.samples_per_segment
-        
-        self.active_control_points = deque(maxlen=self.max_active_segments)
+
+        self.active_control_points = deque(
+            maxlen=self.max_active_segments
+        )
+
         self.centerline = deque(maxlen=max_points)
         self.left_boundary = deque(maxlen=max_points)
         self.right_boundary = deque(maxlen=max_points)
 
+        # Vạch kẻ đường
+        self.left_lane_marking = deque(maxlen=max_points)
+        self.right_lane_marking = deque(maxlen=max_points)
+
         self.extend_distance = 600
 
-        # [YÊU CẦU 5] Thuộc tính quán tính (Momentum) cho hướng đường
+        # Momentum cho hướng đường
         self.current_heading = 0.0
         self.turn_rate = 0.0
+
+        # Cache polygon cho cast_ray
         self._cached_polygon = []
-        print(width)
+
     def get_start(self):
-        return self.control_points[0]
+        return self.history_control_points[0]
+
     # ==================================================
     # Public API
     # ==================================================
@@ -43,8 +53,10 @@ class Road:
     def generate(self, start=(200, 350), heading=0.0):
         self.active_control_points.clear()
         self.history_control_points.clear()
-        
+
         self.current_heading = heading
+        self.turn_rate = 0.0
+
         point = pygame.Vector2(start)
 
         self.active_control_points.append(point.copy())
@@ -61,149 +73,369 @@ class Road:
             return
 
         extended = False
-        # Nếu vị trí camera/xe đến gần điểm cuối, sinh thêm đoạn mới
-        while position.distance_to(self.active_control_points[-1]) < self.extend_distance:
+
+        # Sinh thêm đường khi xe/camera đến gần cuối
+        while position.distance_to(
+            self.active_control_points[-1]
+        ) < self.extend_distance:
+
             self._append_control_point_incremental()
             extended = True
-            
+
         if extended:
-            # Rebuild lại trên một tập dữ liệu nhỏ (deque cố định) -> Đảm bảo chạy nhanh O(1)
             self._rebuild_sliding_window()
 
     def _append_control_point_incremental(self):
         """
-        Sinh điểm mới dựa trên quán tính (momentum), giảm thiểu gập góc đột ngột.
+        Sinh điểm mới dựa trên quán tính (momentum).
         """
+
         last = self.active_control_points[-1]
 
-        # [YÊU CẦU 5] Thêm nhiễu (noise) vào lực bẻ lái, duy trì quán tính
+        # Noise cho hướng đường
         noise = random.uniform(-0.08, 0.08)
         self.turn_rate += noise
-        
-        # Giới hạn góc bẻ tối đa để đường không cuộn thành hình tròn quá gắt
-        self.turn_rate = max(-0.25, min(0.25, self.turn_rate)) 
-        
-        # Cộng dồn vào hướng đi hiện tại
+
+        # Giới hạn độ cong
+        self.turn_rate = max(
+            -0.25,
+            min(0.25, self.turn_rate)
+        )
+
+        # Cộng dồn hướng
         self.current_heading += self.turn_rate
 
         direction = pygame.Vector2(
-            math.cos(self.current_heading), 
+            math.cos(self.current_heading),
             math.sin(self.current_heading)
         )
-        
-        new_point = last + direction * self.segment_length
 
-        self.active_control_points.append(new_point.copy())
-        self.history_control_points.append(new_point.copy()) # Lưu lại vào lịch sử
+        new_point = (
+            last
+            + direction * self.segment_length
+        )
+
+        self.active_control_points.append(
+            new_point.copy()
+        )
+
+        self.history_control_points.append(
+            new_point.copy()
+        )
 
     # ==================================================
-    # Tính toán (Sliding Window O(1))
+    # Sliding Window
     # ==================================================
 
     def _rebuild_sliding_window(self):
-        """Tính toán lại chỉ cho các điểm nằm trong giới hạn của deque"""
+        """
+        Tính toán lại geometry trong sliding window.
+        """
+
         self.centerline.clear()
         self.left_boundary.clear()
         self.right_boundary.clear()
 
+        self.left_lane_marking.clear()
+        self.right_lane_marking.clear()
+
         self._generate_centerline()
         self._generate_boundaries()
+        self._generate_lane_markings()
 
-    def _catmull_rom(self, p0, p1, p2, p3, t):
+        # Cache polygon cho LiDAR / collision
+        self._cached_polygon = (
+            list(self.left_boundary)
+            + list(reversed(self.right_boundary))
+        )
+
+    # ==================================================
+    # Catmull-Rom
+    # ==================================================
+
+    def _catmull_rom(
+        self,
+        p0,
+        p1,
+        p2,
+        p3,
+        t
+    ):
         t2 = t * t
         t3 = t2 * t
+
         return 0.5 * (
-            (2 * p1) +
-            (-p0 + p2) * t +
-            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+            (2 * p1)
+            + (-p0 + p2) * t
+            + (
+                2 * p0
+                - 5 * p1
+                + 4 * p2
+                - p3
+            ) * t2
+            + (
+                -p0
+                + 3 * p1
+                - 3 * p2
+                + p3
+            ) * t3
         )
 
     def _generate_centerline(self):
         if len(self.active_control_points) < 4:
             return
 
-        # Dùng kỹ thuật nhân bản điểm đầu cuối trong window để Catmull-Rom nối mượt
-        pts = [self.active_control_points[0]] + list(self.active_control_points) + [self.active_control_points[-1]]
+        pts = (
+            [self.active_control_points[0]]
+            + list(self.active_control_points)
+            + [self.active_control_points[-1]]
+        )
 
         for i in range(1, len(pts) - 2):
-            p0, p1, p2, p3 = pts[i - 1], pts[i], pts[i + 1], pts[i + 2]
+
+            p0 = pts[i - 1]
+            p1 = pts[i]
+            p2 = pts[i + 1]
+            p3 = pts[i + 2]
 
             for j in range(self.samples_per_segment):
-                t = j / self.samples_per_segment
-                self.centerline.append(self._catmull_rom(p0, p1, p2, p3, t))
 
-        self.centerline.append(self.active_control_points[-1].copy())
+                t = j / self.samples_per_segment
+
+                point = self._catmull_rom(
+                    p0,
+                    p1,
+                    p2,
+                    p3,
+                    t
+                )
+
+                self.centerline.append(point)
+
+        self.centerline.append(
+            self.active_control_points[-1].copy()
+        )
+
+    # ==================================================
+    # Road Boundaries
+    # ==================================================
 
     def _generate_boundaries(self):
+
         n = len(self.centerline)
+
         if n < 2:
             return
 
         half_width = self.width / 2
 
         for i in range(n):
-            # [YÊU CẦU 4] Giữ nguyên sai phân trung tâm: P[i+1] - P[i-1]
+
             if i == 0:
-                tangent = self.centerline[1] - self.centerline[0]
+
+                tangent = (
+                    self.centerline[1]
+                    - self.centerline[0]
+                )
+
             elif i == n - 1:
-                tangent = self.centerline[n - 1] - self.centerline[n - 2]
+
+                tangent = (
+                    self.centerline[n - 1]
+                    - self.centerline[n - 2]
+                )
+
             else:
-                tangent = self.centerline[i + 1] - self.centerline[i - 1]
+
+                tangent = (
+                    self.centerline[i + 1]
+                    - self.centerline[i - 1]
+                )
 
             if tangent.length_squared() == 0:
                 continue
 
             tangent = tangent.normalize()
-            normal = pygame.Vector2(-tangent.y, tangent.x)
+
+            normal = pygame.Vector2(
+                -tangent.y,
+                tangent.x
+            )
+
             center = self.centerline[i]
 
-            self.left_boundary.append(center + normal * half_width)
-            self.right_boundary.append(center - normal * half_width)
+            self.left_boundary.append(
+                center + normal * half_width
+            )
+
+            self.right_boundary.append(
+                center - normal * half_width
+            )
 
     # ==================================================
-    # Render với Quads
+    # Lane Markings
     # ==================================================
 
-    def draw(self, screen, camera, show_control_points=True, show_centerline=True):
+    def _generate_lane_markings(self):
+
+        self.left_lane_marking.clear()
+        self.right_lane_marking.clear()
+
+        # Vạch nằm hơi vào phía trong mặt đường
+        marking_offset = 5.0
+
+        for center, left, right in zip(
+            self.centerline,
+            self.left_boundary,
+            self.right_boundary
+        ):
+
+            # Hướng từ boundary -> center
+            left_dir = center - left
+            right_dir = center - right
+
+            if left_dir.length_squared() > 0:
+                left_dir = left_dir.normalize()
+
+            if right_dir.length_squared() > 0:
+                right_dir = right_dir.normalize()
+
+            self.left_lane_marking.append(
+                left + left_dir * marking_offset
+            )
+
+            self.right_lane_marking.append(
+                right + right_dir * marking_offset
+            )
+
+    # ==================================================
+    # Render
+    # ==================================================
+
+    def draw(
+        self,
+        screen,
+        camera,
+        show_control_points=True,
+        show_centerline=True,
+        show_lane_markings=True,
+    ):
+
         n = len(self.left_boundary)
+
         if n < 2:
             return
 
-        # [YÊU CẦU 3] Thay vì 1 polygon lớn, vẽ từng Quad (tứ giác) để chống giật lag
+        # --------------------------------------------------
+        # Road surface
+        # --------------------------------------------------
+
         for i in range(n - 1):
-            p1 = camera.world_to_screen(self.left_boundary[i])
-            p2 = camera.world_to_screen(self.right_boundary[i])
-            p3 = camera.world_to_screen(self.right_boundary[i + 1])
-            p4 = camera.world_to_screen(self.left_boundary[i + 1])
-            
-            # Vẽ 1 quad gồm 4 điểm nối P(i) và P(i+1)
-            pygame.draw.polygon(screen, (70, 70, 70), [p1, p2, p3, p4])
 
-        # Vẽ tim đường
-        if show_centerline and len(self.centerline) > 1:
-            screen_center = [camera.world_to_screen(p) for p in self.centerline]
-            pygame.draw.lines(screen, (255, 220, 0), False, screen_center, 2)
+            p1 = camera.world_to_screen(
+                self.left_boundary[i]
+            )
 
-        # Vẽ điểm điều khiển đang active
+            p2 = camera.world_to_screen(
+                self.right_boundary[i]
+            )
+
+            p3 = camera.world_to_screen(
+                self.right_boundary[i + 1]
+            )
+
+            p4 = camera.world_to_screen(
+                self.left_boundary[i + 1]
+            )
+
+            pygame.draw.polygon(
+                screen,
+                (70, 70, 70),
+                [p1, p2, p3, p4]
+            )
+
+        # --------------------------------------------------
+        # Lane markings
+        # --------------------------------------------------
+
+        if (
+            show_lane_markings
+            and len(self.left_lane_marking) > 1
+        ):
+
+            left_marking = [
+                camera.world_to_screen(p)
+                for p in self.left_lane_marking
+            ]
+
+            right_marking = [
+                camera.world_to_screen(p)
+                for p in self.right_lane_marking
+            ]
+
+            pygame.draw.lines(
+                screen,
+                (255, 255, 255),
+                False,
+                left_marking,
+                4
+            )
+
+            pygame.draw.lines(
+                screen,
+                (255, 255, 255),
+                False,
+                right_marking,
+                4
+            )
+
+        # --------------------------------------------------
+        # Centerline
+        # --------------------------------------------------
+
+        if (
+            show_centerline
+            and len(self.centerline) > 1
+        ):
+
+            screen_center = [
+                camera.world_to_screen(p)
+                for p in self.centerline
+            ]
+
+            pygame.draw.lines(
+                screen,
+                (255, 220, 0),
+                False,
+                screen_center,
+                2
+            )
+
+        # --------------------------------------------------
+        # Control points
+        # --------------------------------------------------
+
         if show_control_points:
+
             for point in self.active_control_points:
+
                 pygame.draw.circle(
-                    screen, 
-                    (255, 0, 0), 
-                    camera.world_to_screen(point), 
+                    screen,
+                    (255, 0, 0),
+                    camera.world_to_screen(point),
                     5
                 )
-    def _rebuild_sliding_window(self):
-        self.centerline.clear()
-        self.left_boundary.clear()
-        self.right_boundary.clear()
 
-        self._generate_centerline()
-        self._generate_boundaries()
-
-        # Cache polygon 1 lần duy nhất, thay vì dựng lại ở mỗi lần cast_ray
-        self._cached_polygon = list(self.left_boundary) + list(reversed(self.right_boundary))
+    # ==================================================
+    # LiDAR / Collision
+    # ==================================================
 
     def get_boundary_polygon(self):
         return self._cached_polygon
+    def get_centerline(self):
+        """
+        Trả về các điểm centerline đã được nội suy.
+
+        Các điểm nằm trong tọa độ World.
+        """
+        return list(self.centerline)

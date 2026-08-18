@@ -97,7 +97,7 @@ class Wheel:
         if self.steerable and self.driven:
             color = (255, 140, 0)      # AWD
         elif self.steerable:
-            color = (0, 120, 255)      # Bánh lái
+            color = (0, 255, 0)      # Bánh lái
         elif self.driven:
             color = (220, 60, 60)      # Bánh chủ động
         else:

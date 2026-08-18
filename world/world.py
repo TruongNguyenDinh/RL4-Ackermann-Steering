@@ -18,6 +18,7 @@ class World:
     # RESET WORLD
     # ==================================================
     def reset(self):
+        self.car.scan(self)
         self.road.generate((200, 350), 0)
 
         start = self.road.active_control_points[0]
