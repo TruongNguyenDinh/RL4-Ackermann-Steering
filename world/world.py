@@ -64,7 +64,7 @@ class World:
         self.road.draw(
             screen, self.camera,
             show_control_points=False,
-            show_centerline=True
+            show_centerline=False
         )
 
         self.car.draw(screen, self.camera)
