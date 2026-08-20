@@ -16,29 +16,95 @@ from rl.replay_buffer import ReplayBuffer
 WIDTH = 1400
 HEIGHT = 900
 
-# 10 waypoints × (x, y)
-# + velocity
-# + steering
+
+# ==================================================
+# STATE
+# ==================================================
+
+# 10 waypoints
+# mỗi waypoint = (x, y)
 #
-# = 22
+# 10 × 2 = 20
+#
+# velocity      = 1
+# steering      = 1
+#
+# TOTAL = 22
+
 STATE_DIM = 22
 
 ACTION_DIM = 2
 
+
+# ==================================================
+# TRAINING
+# ==================================================
+
 EPISODES = 3000
+
 MAX_STEPS = 2000
 
+
+# ==================================================
+# REPLAY BUFFER
+# ==================================================
+
 BUFFER_SIZE = 100_000
+
 BATCH_SIZE = 256
 
-WARMUP_STEPS = 5_000
+
+# ==================================================
+# WARMUP
+#
+# Model cũ đã được train tốt.
+#
+# Không cần random exploration ban đầu.
+# SAC sẽ lấy action từ policy cũ.
+# ==================================================
+
+WARMUP_STEPS = 0
+
+
+# ==================================================
+# UPDATE
+# ==================================================
 
 UPDATE_AFTER = 1
+
 UPDATE_EVERY = 1
+
+
+# ==================================================
+# SAVE
+# ==================================================
 
 SAVE_EVERY = 100
 
+
+# ==================================================
+# MODEL
+# ==================================================
+
 MODEL_DIR = "model"
+
+# Model cũ
+PRETRAINED_MODEL = os.path.join(
+    MODEL_DIR,
+    "best_model.pth"
+)
+
+
+# ==================================================
+# VERSION
+# ==================================================
+
+VERSION = "v2.1"
+
+
+# ==================================================
+# SEED
+# ==================================================
 
 SEED = 42
 
@@ -47,11 +113,17 @@ SEED = 42
 # SEED
 # ==================================================
 
-random.seed(SEED)
+random.seed(
+    SEED
+)
 
-np.random.seed(SEED)
+np.random.seed(
+    SEED
+)
 
-torch.manual_seed(SEED)
+torch.manual_seed(
+    SEED
+)
 
 if torch.cuda.is_available():
 
@@ -71,8 +143,16 @@ device = torch.device(
 )
 
 
+# ==================================================
+# HEADER
+# ==================================================
+
 print("=" * 60)
-print("SAC Self-Driving Training")
+
+print(
+    "SAC Self-Driving Training - V2"
+)
+
 print("=" * 60)
 
 print(
@@ -95,6 +175,19 @@ print(
     f"Max steps   : {MAX_STEPS}"
 )
 
+print(
+    f"Warmup      : {WARMUP_STEPS}"
+)
+
+print(
+    f"Pretrained  : {PRETRAINED_MODEL}"
+)
+
+print(
+    f"Output      : *_{VERSION}.pth"
+)
+
+
 if torch.cuda.is_available():
 
     print(
@@ -106,25 +199,42 @@ print("=" * 60)
 
 
 # ==================================================
+# MODEL DIRECTORY
+# ==================================================
+
+os.makedirs(
+    MODEL_DIR,
+    exist_ok=True
+)
+
+
+# ==================================================
 # ENVIRONMENT
 # ==================================================
 
 env = CarEnv(
     width=WIDTH,
-    height=HEIGHT,
+    height=HEIGHT
 )
 
 
 # ==================================================
-# CHECK STATE DIMENSION
+# CHECK ENV STATE
 # ==================================================
 
 initial_state = env.reset()
 
 initial_state = np.asarray(
     initial_state,
-    dtype=np.float32,
+    dtype=np.float32
 )
+
+
+print(
+    f"Initial state shape: "
+    f"{initial_state.shape}"
+)
+
 
 if initial_state.shape != (
     STATE_DIM,
@@ -132,17 +242,31 @@ if initial_state.shape != (
 
     raise ValueError(
         "\n"
-        f"STATE_DIM = {STATE_DIM}, "
+        f"Expected state shape "
+        f"({STATE_DIM},), "
         f"but CarEnv returned "
-        f"state shape = "
         f"{initial_state.shape}\n"
-        "Check PathProcessor.num_points."
     )
 
 
 print(
-    f"Initial state shape: "
-    f"{initial_state.shape}"
+    f"2D path     : "
+    f"{len(env.waypoints_2d)}"
+)
+
+print(
+    f"3D path     : "
+    f"{len(env.path_3d)}"
+)
+
+print(
+    f"Official    : "
+    f"{len(env.official_path)}"
+)
+
+print(
+    f"RL path     : "
+    f"{len(env.processed_path)}"
 )
 
 print("=" * 60)
@@ -160,23 +284,56 @@ agent = SACAgent(
 
 
 # ==================================================
+# LOAD OLD MODEL
+# ==================================================
+
+if not os.path.exists(
+    PRETRAINED_MODEL
+):
+
+    raise FileNotFoundError(
+        "\n"
+        "Pretrained model not found:\n"
+        f"{PRETRAINED_MODEL}\n"
+        "\n"
+        "Make sure the old model exists "
+        "before starting V2 training."
+    )
+
+
+print(
+    "Loading pretrained model..."
+)
+
+print(
+    f"  -> {PRETRAINED_MODEL}"
+)
+
+
+agent.load(
+    PRETRAINED_MODEL
+)
+
+
+print(
+    "Pretrained model loaded."
+)
+
+print("=" * 60)
+
+
+# ==================================================
 # REPLAY BUFFER
+#
+# Không dùng buffer cũ.
+#
+# Vì environment/path input đã thay đổi.
 # ==================================================
 
 replay_buffer = ReplayBuffer(
     state_dim=STATE_DIM,
     action_dim=ACTION_DIM,
     capacity=BUFFER_SIZE,
-)
-
-
-# ==================================================
-# MODEL DIRECTORY
-# ==================================================
-
-os.makedirs(
-    MODEL_DIR,
-    exist_ok=True,
 )
 
 
@@ -191,6 +348,10 @@ best_reward = -float(
 )
 
 
+# ==================================================
+# EPISODES
+# ==================================================
+
 for episode in range(
     1,
     EPISODES + 1
@@ -204,10 +365,14 @@ for episode in range(
 
     state = np.asarray(
         state,
-        dtype=np.float32,
+        dtype=np.float32
     )
 
-    # Safety check
+
+    # --------------------------------------------------
+    # State validation
+    # --------------------------------------------------
+
     if state.shape != (
         STATE_DIM,
     ):
@@ -217,9 +382,11 @@ for episode in range(
             f"{state.shape}"
         )
 
+
     episode_reward = 0.0
 
     episode_steps = 0
+
 
     # ==================================================
     # EPISODE
@@ -238,40 +405,51 @@ for episode in range(
             < WARMUP_STEPS
         ):
 
+            # ------------------------------------------
             # Random exploration
+            # ------------------------------------------
+
             action = np.random.uniform(
                 -1.0,
                 1.0,
-                size=ACTION_DIM,
+                size=ACTION_DIM
             ).astype(
                 np.float32
             )
 
         else:
 
+            # ------------------------------------------
+            # PRETRAINED POLICY
+            # ------------------------------------------
+
             action = (
                 agent.select_action(
                     state,
-                    evaluate=False,
+                    evaluate=False
                 )
             )
 
             action = np.asarray(
                 action,
-                dtype=np.float32,
+                dtype=np.float32
             )
+
 
         # ==================================================
         # ENVIRONMENT
         # ==================================================
 
         next_state, reward, done = (
-            env.step(action)
+            env.step(
+                action
+            )
         )
+
 
         next_state = np.asarray(
             next_state,
-            dtype=np.float32,
+            dtype=np.float32
         )
 
         reward = float(
@@ -281,6 +459,7 @@ for episode in range(
         done = bool(
             done
         )
+
 
         # ==================================================
         # STATE CHECK
@@ -296,6 +475,7 @@ for episode in range(
                 f"{next_state.shape}"
             )
 
+
         # ==================================================
         # REPLAY BUFFER
         # ==================================================
@@ -305,11 +485,12 @@ for episode in range(
             action,
             reward,
             next_state,
-            done,
+            done
         )
 
+
         # ==================================================
-        # UPDATE SAC
+        # SAC UPDATE
         # ==================================================
 
         if (
@@ -325,8 +506,9 @@ for episode in range(
 
             info = agent.update(
                 replay_buffer,
-                batch_size=BATCH_SIZE,
+                batch_size=BATCH_SIZE
             )
+
 
         # ==================================================
         # UPDATE STATE
@@ -340,6 +522,7 @@ for episode in range(
 
         total_steps += 1
 
+
         # ==================================================
         # DONE
         # ==================================================
@@ -347,6 +530,7 @@ for episode in range(
         if done:
 
             break
+
 
     # ==================================================
     # LOG
@@ -359,8 +543,9 @@ for episode in range(
         f"Buffer: {len(replay_buffer):6d}"
     )
 
+
     # ==================================================
-    # BEST MODEL
+    # BEST MODEL V2
     # ==================================================
 
     if (
@@ -372,23 +557,28 @@ for episode in range(
             episode_reward
         )
 
+
         best_path = os.path.join(
             MODEL_DIR,
-            "best_model.pth",
+            f"best_model_{VERSION}.pth"
         )
+
 
         agent.save(
             best_path
         )
 
+
         print(
-            "  -> Best model saved "
+            "  -> Best model saved: "
+            f"{best_path} "
             f"(reward="
             f"{best_reward:.3f})"
         )
 
+
     # ==================================================
-    # CHECKPOINT
+    # CHECKPOINT V2
     # ==================================================
 
     if (
@@ -400,13 +590,15 @@ for episode in range(
         checkpoint_path = (
             os.path.join(
                 MODEL_DIR,
-                f"checkpoint_{episode}.pth",
+                f"checkpoint_{episode}_{VERSION}.pth"
             )
         )
+
 
         agent.save(
             checkpoint_path
         )
+
 
         print(
             "  -> Checkpoint saved: "
@@ -415,13 +607,14 @@ for episode in range(
 
 
 # ==================================================
-# FINAL MODEL
+# FINAL MODEL V2
 # ==================================================
 
 final_path = os.path.join(
     MODEL_DIR,
-    "final_model.pth",
+    f"final_model_{VERSION}.pth"
 )
+
 
 agent.save(
     final_path
@@ -437,7 +630,7 @@ print()
 print("=" * 60)
 
 print(
-    "Training finished"
+    "V2 Training finished"
 )
 
 print(
@@ -451,8 +644,15 @@ print(
 )
 
 print(
-    f"Total steps: "
+    f"Total steps : "
     f"{total_steps}"
 )
 
 print("=" * 60)
+
+
+# ==================================================
+# CLOSE
+# ==================================================
+
+env.close()
